@@ -1,0 +1,768 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Hardened Global Primitives
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && (
+        request.auth.token.firebase.sign_in_provider == 'phone' ||
+        request.auth.token.email_verified == true
+      );
+    }
+
+    function isOwner(uid) {
+      return isVerifiedUser() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        (request.auth.token.email == 'anitabiswas0986@gmail.com' && request.auth.token.email_verified == true) ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isOptionalString(data, key, maxLen) {
+      return !(key in data) || (data[key] is string && data[key].size() <= maxLen);
+    }
+
+    function isBoundedList(listVal, maxLen) {
+      return listVal is list && listVal.size() <= maxLen && (listVal.size() == 0 || listVal[0] is string);
+    }
+
+    function isBoundedObjectList(listVal, maxLen) {
+      return listVal is list && listVal.size() <= maxLen && (listVal.size() == 0 || listVal[0] is map);
+    }
+
+    function isBoundedIntList(listVal, maxLen) {
+      return listVal is list && listVal.size() <= maxLen && (listVal.size() == 0 || listVal[0] is number);
+    }
+
+    function isInstitutionAdmin(institutionId) {
+      return isVerifiedUser() &&
+        isValidId(institutionId) &&
+        exists(/databases/$(database)/documents/institutions/$(institutionId)) &&
+        get(/databases/$(database)/documents/institutions/$(institutionId)).data.adminUid == request.auth.uid;
+    }
+
+    function isInstitutionMember(institutionId) {
+      return isVerifiedUser() &&
+        isValidId(institutionId) &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.institutionId == institutionId;
+    }
+
+    function isSubjectTeacher(institutionId, subjectId) {
+      return isVerifiedUser() &&
+        isValidId(institutionId) &&
+        isValidId(subjectId) &&
+        exists(/databases/$(database)/documents/subjects/$(subjectId)) &&
+        get(/databases/$(database)/documents/subjects/$(subjectId)).data.institutionId == institutionId &&
+        (
+          get(/databases/$(database)/documents/subjects/$(subjectId)).data.adminUid == request.auth.uid ||
+          request.auth.uid in get(/databases/$(database)/documents/subjects/$(subjectId)).data.teacherUids
+        );
+    }
+
+    function matchesPhoneOrEmail(docData) {
+      return (
+        (request.auth.token.firebase.sign_in_provider == 'phone' &&
+         request.auth.token.phone_number is string &&
+         docData.phoneE164 == request.auth.token.phone_number) ||
+        (request.auth.token.email_verified == true &&
+         docData.fallbackEmail is string &&
+         docData.fallbackEmail.size() > 0 &&
+         docData.fallbackEmail == request.auth.token.email)
+      );
+    }
+
+    function isGrowthRecordStudentOwner(recordData) {
+      return isVerifiedUser() && (
+        recordData.studentUid == request.auth.uid ||
+        (isValidId(recordData.studentDocId) &&
+         exists(/databases/$(database)/documents/students/$(recordData.studentDocId)) &&
+         get(/databases/$(database)/documents/students/$(recordData.studentDocId)).data.claimedUid == request.auth.uid)
+      );
+    }
+
+    // 3. Entity Validation Blueprints
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'role', 'institutionId', 'memberId', 'displayName', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'role', 'institutionId', 'memberId', 'displayName', 'phoneE164', 'email', 'photoUrl', 'uniqueCode', 'createdAt', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        data.uid == request.auth.uid &&
+        data.role in ['admin', 'teacher', 'student'] &&
+        isValidId(data.institutionId) &&
+        isValidId(data.memberId) &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100 &&
+        isOptionalString(data, 'phoneE164', 24) &&
+        isOptionalString(data, 'email', 160) &&
+        isOptionalString(data, 'photoUrl', 250000) &&
+        isOptionalString(data, 'uniqueCode', 40) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidInstitution(data) {
+      return data.keys().hasAll(['id', 'name', 'adminUid', 'adminName', 'joinCode', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'name', 'tagline', 'adminUid', 'adminName', 'institutionPhoto', 'adminPhoto', 'joinCode', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        data.name is string && data.name.size() >= 2 && data.name.size() <= 120 &&
+        isOptionalString(data, 'tagline', 200) &&
+        isValidId(data.adminUid) &&
+        data.adminName is string && data.adminName.size() >= 1 && data.adminName.size() <= 100 &&
+        isOptionalString(data, 'institutionPhoto', 250000) &&
+        isOptionalString(data, 'adminPhoto', 250000) &&
+        data.joinCode is string && data.joinCode.size() >= 4 && data.joinCode.size() <= 24 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSubject(data) {
+      return data.keys().hasAll(['id', 'institutionId', 'adminUid', 'name', 'code', 'teacherUids', 'teacherIds', 'topicIds', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'institutionId', 'adminUid', 'name', 'code', 'description', 'teacherUids', 'teacherIds', 'topicIds', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.institutionId) &&
+        isValidId(data.adminUid) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+        data.code is string && data.code.size() >= 1 && data.code.size() <= 24 &&
+        isOptionalString(data, 'description', 400) &&
+        isBoundedList(data.teacherUids, 20) &&
+        isBoundedList(data.teacherIds, 20) &&
+        isBoundedList(data.topicIds, 50) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidTeacher(data) {
+      return data.keys().hasAll(['id', 'institutionId', 'adminUid', 'name', 'phoneE164', 'assignedSubjectIds', 'claimedUid', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'institutionId', 'adminUid', 'name', 'phoneE164', 'fallbackEmail', 'photoUrl', 'assignedSubjectIds', 'claimedUid', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.institutionId) &&
+        isValidId(data.adminUid) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+        data.phoneE164 is string && data.phoneE164.size() >= 6 && data.phoneE164.size() <= 24 &&
+        isOptionalString(data, 'fallbackEmail', 160) &&
+        isOptionalString(data, 'photoUrl', 250000) &&
+        isBoundedList(data.assignedSubjectIds, 20) &&
+        data.claimedUid is string && data.claimedUid.size() <= 128 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidStudent(data) {
+      return data.keys().hasAll(['id', 'institutionId', 'adminUid', 'uniqueStudentId', 'name', 'phoneE164', 'enrolledSubjectIds', 'authorizedTeacherUids', 'createdByUid', 'claimedUid', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'institutionId', 'adminUid', 'uniqueStudentId', 'name', 'phoneE164', 'fallbackEmail', 'photoUrl', 'enrolledSubjectIds', 'authorizedTeacherUids', 'createdByUid', 'claimedUid', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.institutionId) &&
+        isValidId(data.adminUid) &&
+        data.uniqueStudentId is string && data.uniqueStudentId.size() >= 3 && data.uniqueStudentId.size() <= 32 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+        data.phoneE164 is string && data.phoneE164.size() >= 6 && data.phoneE164.size() <= 24 &&
+        isOptionalString(data, 'fallbackEmail', 160) &&
+        isOptionalString(data, 'photoUrl', 250000) &&
+        isBoundedList(data.enrolledSubjectIds, 20) &&
+        isBoundedList(data.authorizedTeacherUids, 20) &&
+        isValidId(data.createdByUid) &&
+        data.claimedUid is string && data.claimedUid.size() <= 128 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidPublicProfile(data) {
+      return data.keys().hasAll(['id', 'institutionId', 'adminUid', 'role', 'name', 'subjectIds', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'institutionId', 'adminUid', 'role', 'name', 'photoUrl', 'uniqueStudentId', 'subjectIds', 'updatedAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.institutionId) &&
+        isValidId(data.adminUid) &&
+        data.role in ['admin', 'teacher', 'student'] &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+        isOptionalString(data, 'photoUrl', 250000) &&
+        isOptionalString(data, 'uniqueStudentId', 32) &&
+        isBoundedList(data.subjectIds, 20) &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidPhoneLink(data) {
+      return data.keys().hasAll(['id', 'role', 'institutionId', 'adminUid', 'memberDocId', 'phoneE164', 'claimedUid', 'createdByUid', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'role', 'institutionId', 'adminUid', 'memberDocId', 'phoneE164', 'fallbackEmail', 'uniqueCode', 'claimedUid', 'createdByUid', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        data.role in ['teacher', 'student'] &&
+        isValidId(data.institutionId) &&
+        isValidId(data.adminUid) &&
+        isValidId(data.memberDocId) &&
+        data.phoneE164 is string && data.phoneE164.size() >= 6 && data.phoneE164.size() <= 24 &&
+        isOptionalString(data, 'fallbackEmail', 160) &&
+        isOptionalString(data, 'uniqueCode', 32) &&
+        data.claimedUid is string && data.claimedUid.size() <= 128 &&
+        isValidId(data.createdByUid) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidTopic(data) {
+      return data.keys().hasAll(['id', 'institutionId', 'adminUid', 'subjectId', 'teacherUid', 'teacherUids', 'title', 'studyContent', 'referenceImages', 'preTestQuestions', 'postTestQuestions', 'assignmentPrompt', 'assignmentMode', 'isPublished', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'institutionId', 'adminUid', 'subjectId', 'teacherUid', 'teacherUids', 'title', 'description', 'studyContent', 'referenceImages', 'preTestQuestions', 'postTestQuestions', 'assignmentPrompt', 'assignmentMode', 'isPublished', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.institutionId) &&
+        isValidId(data.adminUid) &&
+        isValidId(data.subjectId) &&
+        isValidId(data.teacherUid) &&
+        isBoundedList(data.teacherUids, 20) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 140 &&
+        isOptionalString(data, 'description', 600) &&
+        data.studyContent is string && data.studyContent.size() <= 30000 &&
+        isBoundedObjectList(data.referenceImages, 6) &&
+        isBoundedObjectList(data.preTestQuestions, 15) &&
+        isBoundedObjectList(data.postTestQuestions, 15) &&
+        data.assignmentPrompt is string && data.assignmentPrompt.size() <= 4000 &&
+        data.assignmentMode in ['written', 'file', 'both'] &&
+        data.isPublished is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidGrowthRecord(data) {
+      return data.keys().hasAll(['id', 'institutionId', 'adminUid', 'subjectId', 'topicId', 'studentDocId', 'studentUid', 'studentName', 'uniqueStudentId', 'teacherUids', 'preTestScore', 'preTestTotal', 'preTestPercent', 'preTestAnswers', 'preTestCompleted', 'studyCompleted', 'assignmentStatus', 'assignmentType', 'postTestScore', 'postTestTotal', 'postTestPercent', 'postTestAnswers', 'postTestCompleted', 'growthDelta', 'normalizedGain', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'institutionId', 'adminUid', 'subjectId', 'topicId', 'studentDocId', 'studentUid', 'studentName', 'uniqueStudentId', 'teacherUids', 'preTestScore', 'preTestTotal', 'preTestPercent', 'preTestAnswers', 'preTestCompleted', 'studyCompleted', 'assignmentStatus', 'assignmentType', 'assignmentText', 'assignmentFileName', 'assignmentFileType', 'assignmentFileData', 'assignmentScore', 'assignmentFeedback', 'postTestScore', 'postTestTotal', 'postTestPercent', 'postTestAnswers', 'postTestCompleted', 'growthDelta', 'normalizedGain', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.institutionId) &&
+        isValidId(data.adminUid) &&
+        isValidId(data.subjectId) &&
+        isValidId(data.topicId) &&
+        isValidId(data.studentDocId) &&
+        isValidId(data.studentUid) &&
+        data.studentName is string && data.studentName.size() >= 1 && data.studentName.size() <= 100 &&
+        data.uniqueStudentId is string && data.uniqueStudentId.size() >= 3 && data.uniqueStudentId.size() <= 32 &&
+        isBoundedList(data.teacherUids, 20) &&
+        data.preTestScore is number && data.preTestScore >= 0 && data.preTestScore <= 100 &&
+        data.preTestTotal is number && data.preTestTotal >= 0 && data.preTestTotal <= 100 &&
+        data.preTestPercent is number && data.preTestPercent >= 0 && data.preTestPercent <= 100 &&
+        isBoundedIntList(data.preTestAnswers, 15) &&
+        data.preTestCompleted is bool &&
+        data.studyCompleted is bool &&
+        data.assignmentStatus in ['pending', 'submitted', 'graded'] &&
+        data.assignmentType in ['none', 'written', 'file'] &&
+        isOptionalString(data, 'assignmentText', 15000) &&
+        isOptionalString(data, 'assignmentFileName', 200) &&
+        isOptionalString(data, 'assignmentFileType', 100) &&
+        isOptionalString(data, 'assignmentFileData', 350000) &&
+        (!( 'assignmentScore' in data ) || (data.assignmentScore is number && data.assignmentScore >= 0 && data.assignmentScore <= 100)) &&
+        isOptionalString(data, 'assignmentFeedback', 2000) &&
+        data.postTestScore is number && data.postTestScore >= 0 && data.postTestScore <= 100 &&
+        data.postTestTotal is number && data.postTestTotal >= 0 && data.postTestTotal <= 100 &&
+        data.postTestPercent is number && data.postTestPercent >= 0 && data.postTestPercent <= 100 &&
+        isBoundedIntList(data.postTestAnswers, 15) &&
+        data.postTestCompleted is bool &&
+        data.growthDelta is number && data.growthDelta >= -100 && data.growthDelta <= 100 &&
+        data.normalizedGain is number && data.normalizedGain >= -100 && data.normalizedGain <= 100 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // 4. Collection Rules
+
+    match /users/{uid} {
+      allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow list: if isVerifiedUser() && (resource.data.uid == request.auth.uid || isAdmin());
+
+      allow create: if isVerifiedUser() &&
+        isValidId(uid) &&
+        uid == request.auth.uid &&
+        isValidUserProfile(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          (incoming().role == 'admin' &&
+           incoming().memberId == incoming().institutionId &&
+           getAfter(/databases/$(database)/documents/institutions/$(incoming().institutionId)).data.adminUid == request.auth.uid) ||
+          (incoming().role == 'teacher' &&
+           getAfter(/databases/$(database)/documents/teachers/$(incoming().memberId)).data.claimedUid == request.auth.uid &&
+           getAfter(/databases/$(database)/documents/teachers/$(incoming().memberId)).data.institutionId == incoming().institutionId) ||
+          (incoming().role == 'student' &&
+           getAfter(/databases/$(database)/documents/students/$(incoming().memberId)).data.claimedUid == request.auth.uid &&
+           getAfter(/databases/$(database)/documents/students/$(incoming().memberId)).data.institutionId == incoming().institutionId)
+        );
+
+      allow update: if isVerifiedUser() &&
+        isValidId(uid) &&
+        isValidUserProfile(incoming()) &&
+        incoming().updatedAt == request.time &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().uid == existing().uid &&
+        incoming().role == existing().role &&
+        incoming().institutionId == existing().institutionId &&
+        incoming().memberId == existing().memberId &&
+        (
+          isAdmin() ||
+          (isOwner(uid) && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoUrl', 'phoneE164', 'email', 'updatedAt']))
+        );
+
+      allow delete: if isValidId(uid) && (
+        isOwner(uid) ||
+        (resource != null && resource.data.institutionId is string && isInstitutionAdmin(resource.data.institutionId)) ||
+        isAdmin()
+      );
+    }
+
+    match /institutions/{institutionId} {
+      allow get: if isValidId(institutionId) && isVerifiedUser() && (
+        resource == null ||
+        existing().adminUid == request.auth.uid ||
+        isInstitutionMember(institutionId) ||
+        isAdmin()
+      );
+      allow list: if isVerifiedUser() && (resource.data.adminUid == request.auth.uid || isAdmin());
+
+      allow create: if isVerifiedUser() &&
+        isValidId(institutionId) &&
+        isValidInstitution(incoming()) &&
+        incoming().id == institutionId &&
+        incoming().adminUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser() &&
+        isValidId(institutionId) &&
+        isValidInstitution(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().adminUid == existing().adminUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          (existing().adminUid == request.auth.uid &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['name', 'tagline', 'adminName', 'institutionPhoto', 'adminPhoto', 'updatedAt']))
+        );
+
+      allow delete: if isValidId(institutionId) && (existing().adminUid == request.auth.uid || isAdmin());
+    }
+
+    match /subjects/{subjectId} {
+      allow get: if isValidId(subjectId) && isVerifiedUser() && (
+        resource == null ||
+        existing().adminUid == request.auth.uid ||
+        request.auth.uid in existing().teacherUids ||
+        isInstitutionMember(existing().institutionId) ||
+        isAdmin()
+      );
+      allow list: if isVerifiedUser() && (
+        resource.data.adminUid == request.auth.uid ||
+        request.auth.uid in resource.data.teacherUids ||
+        isAdmin()
+      );
+
+      allow create: if isVerifiedUser() &&
+        isValidId(subjectId) &&
+        isValidSubject(incoming()) &&
+        incoming().id == subjectId &&
+        incoming().adminUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isInstitutionAdmin(incoming().institutionId);
+
+      allow update: if isVerifiedUser() &&
+        isValidId(subjectId) &&
+        isValidSubject(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().institutionId == existing().institutionId &&
+        incoming().adminUid == existing().adminUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          (existing().adminUid == request.auth.uid &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['name', 'code', 'description', 'teacherUids', 'teacherIds', 'topicIds', 'updatedAt'])) ||
+          (request.auth.uid in existing().teacherUids &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['topicIds', 'updatedAt'])) ||
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher' &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.institutionId == existing().institutionId &&
+           subjectId in get(/databases/$(database)/documents/teachers/$(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.memberId)).data.assignedSubjectIds &&
+           incoming().teacherUids.hasAll(existing().teacherUids) &&
+           request.auth.uid in incoming().teacherUids &&
+           incoming().teacherUids.size() <= existing().teacherUids.size() + 1 &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['teacherUids', 'updatedAt']))
+        );
+
+      allow delete: if isValidId(subjectId) && (existing().adminUid == request.auth.uid || isAdmin());
+    }
+
+    match /teachers/{teacherId} {
+      allow get: if isValidId(teacherId) && isVerifiedUser() && (
+        resource == null ||
+        existing().adminUid == request.auth.uid ||
+        existing().claimedUid == request.auth.uid ||
+        matchesPhoneOrEmail(existing()) ||
+        (existing().claimedUid == '' &&
+         existing().phoneE164.size() > 1 &&
+         exists(/databases/$(database)/documents/phoneLinks/$( 'phone_' + existing().phoneE164[1:existing().phoneE164.size()] )) &&
+         get(/databases/$(database)/documents/phoneLinks/$( 'phone_' + existing().phoneE164[1:existing().phoneE164.size()] )).data.claimedUid == request.auth.uid) ||
+        isAdmin()
+      );
+      allow list: if isVerifiedUser() && (
+        resource.data.adminUid == request.auth.uid ||
+        resource.data.claimedUid == request.auth.uid ||
+        isAdmin()
+      );
+
+      allow create: if isVerifiedUser() &&
+        isValidId(teacherId) &&
+        isValidTeacher(incoming()) &&
+        incoming().id == teacherId &&
+        incoming().adminUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isInstitutionAdmin(incoming().institutionId);
+
+      allow update: if isVerifiedUser() &&
+        isValidId(teacherId) &&
+        isValidTeacher(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().institutionId == existing().institutionId &&
+        incoming().adminUid == existing().adminUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          (existing().adminUid == request.auth.uid &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phoneE164', 'fallbackEmail', 'photoUrl', 'assignedSubjectIds', 'claimedUid', 'updatedAt'])) ||
+          (existing().claimedUid == request.auth.uid &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['name', 'photoUrl', 'updatedAt'])) ||
+          (existing().claimedUid == '' &&
+           incoming().claimedUid == request.auth.uid &&
+           (
+             matchesPhoneOrEmail(existing()) ||
+             (existing().phoneE164.size() > 1 &&
+              exists(/databases/$(database)/documents/phoneLinks/$( 'phone_' + existing().phoneE164[1:existing().phoneE164.size()] )) &&
+              get(/databases/$(database)/documents/phoneLinks/$( 'phone_' + existing().phoneE164[1:existing().phoneE164.size()] )).data.claimedUid == request.auth.uid)
+           ) &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['claimedUid', 'updatedAt']))
+        );
+
+      allow delete: if isValidId(teacherId) && (existing().adminUid == request.auth.uid || isAdmin());
+    }
+
+    match /students/{studentId} {
+      allow get: if isValidId(studentId) && isVerifiedUser() && (
+        resource == null ||
+        existing().adminUid == request.auth.uid ||
+        existing().claimedUid == request.auth.uid ||
+        existing().createdByUid == request.auth.uid ||
+        request.auth.uid in existing().authorizedTeacherUids ||
+        matchesPhoneOrEmail(existing()) ||
+        (existing().claimedUid == '' &&
+         existing().phoneE164.size() > 1 &&
+         exists(/databases/$(database)/documents/phoneLinks/$( 'phone_' + existing().phoneE164[1:existing().phoneE164.size()] )) &&
+         get(/databases/$(database)/documents/phoneLinks/$( 'phone_' + existing().phoneE164[1:existing().phoneE164.size()] )).data.claimedUid == request.auth.uid) ||
+        isAdmin()
+      );
+      allow list: if isVerifiedUser() && (
+        resource.data.adminUid == request.auth.uid ||
+        resource.data.claimedUid == request.auth.uid ||
+        resource.data.createdByUid == request.auth.uid ||
+        request.auth.uid in resource.data.authorizedTeacherUids ||
+        isAdmin()
+      );
+
+      allow create: if isVerifiedUser() &&
+        isValidId(studentId) &&
+        isValidStudent(incoming()) &&
+        incoming().id == studentId &&
+        incoming().createdByUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          (incoming().adminUid == request.auth.uid && isInstitutionAdmin(incoming().institutionId)) ||
+          (isInstitutionMember(incoming().institutionId) &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher' &&
+           get(/databases/$(database)/documents/institutions/$(incoming().institutionId)).data.adminUid == incoming().adminUid)
+        );
+
+      allow update: if isVerifiedUser() &&
+        isValidId(studentId) &&
+        isValidStudent(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().institutionId == existing().institutionId &&
+        incoming().adminUid == existing().adminUid &&
+        incoming().createdByUid == existing().createdByUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          (existing().adminUid == request.auth.uid &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phoneE164', 'fallbackEmail', 'photoUrl', 'enrolledSubjectIds', 'authorizedTeacherUids', 'claimedUid', 'updatedAt'])) ||
+          (existing().createdByUid == request.auth.uid &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['name', 'photoUrl', 'enrolledSubjectIds', 'authorizedTeacherUids', 'updatedAt'])) ||
+          (existing().claimedUid == request.auth.uid &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['name', 'photoUrl', 'updatedAt'])) ||
+          (existing().claimedUid == '' &&
+           incoming().claimedUid == request.auth.uid &&
+           (
+             matchesPhoneOrEmail(existing()) ||
+             (existing().phoneE164.size() > 1 &&
+              exists(/databases/$(database)/documents/phoneLinks/$( 'phone_' + existing().phoneE164[1:existing().phoneE164.size()] )) &&
+              get(/databases/$(database)/documents/phoneLinks/$( 'phone_' + existing().phoneE164[1:existing().phoneE164.size()] )).data.claimedUid == request.auth.uid)
+           ) &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['claimedUid', 'updatedAt']))
+        );
+
+      allow delete: if isValidId(studentId) && (existing().adminUid == request.auth.uid || existing().createdByUid == request.auth.uid || isAdmin());
+    }
+
+    match /publicProfiles/{profileId} {
+      allow get: if isValidId(profileId) && isVerifiedUser() && (
+        resource == null ||
+        existing().adminUid == request.auth.uid ||
+        isInstitutionMember(existing().institutionId) ||
+        isAdmin()
+      );
+      allow list: if isVerifiedUser() && (
+        resource.data.adminUid == request.auth.uid ||
+        isAdmin()
+      );
+
+      allow create: if isVerifiedUser() &&
+        isValidId(profileId) &&
+        isValidPublicProfile(incoming()) &&
+        incoming().id == profileId &&
+        incoming().updatedAt == request.time &&
+        (
+          (incoming().adminUid == request.auth.uid &&
+           existsAfter(/databases/$(database)/documents/institutions/$(incoming().institutionId)) &&
+           getAfter(/databases/$(database)/documents/institutions/$(incoming().institutionId)).data.adminUid == request.auth.uid) ||
+          (isInstitutionMember(incoming().institutionId) &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher' &&
+           get(/databases/$(database)/documents/institutions/$(incoming().institutionId)).data.adminUid == incoming().adminUid)
+        );
+
+      allow update: if isVerifiedUser() &&
+        isValidId(profileId) &&
+        isValidPublicProfile(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().institutionId == existing().institutionId &&
+        incoming().adminUid == existing().adminUid &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          (existing().adminUid == request.auth.uid &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['name', 'photoUrl', 'subjectIds', 'updatedAt'])) ||
+          (isInstitutionMember(existing().institutionId) &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.memberId == profileId &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['name', 'photoUrl', 'updatedAt'])) ||
+          (isInstitutionMember(existing().institutionId) &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher' &&
+           existing().role == 'student' &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['name', 'photoUrl', 'subjectIds', 'updatedAt']))
+        );
+
+      allow delete: if isValidId(profileId) && (existing().adminUid == request.auth.uid || isAdmin());
+    }
+
+    match /phoneLinks/{linkId} {
+      allow get: if isValidId(linkId) && isVerifiedUser() && (
+        resource == null ||
+        existing().claimedUid == '' ||
+        existing().createdByUid == request.auth.uid ||
+        existing().adminUid == request.auth.uid ||
+        existing().claimedUid == request.auth.uid ||
+        matchesPhoneOrEmail(existing()) ||
+        isAdmin()
+      );
+      allow list: if isVerifiedUser() && (
+        resource.data.adminUid == request.auth.uid ||
+        resource.data.createdByUid == request.auth.uid ||
+        resource.data.claimedUid == request.auth.uid ||
+        isAdmin()
+      );
+
+      allow create: if isVerifiedUser() &&
+        isValidId(linkId) &&
+        isValidPhoneLink(incoming()) &&
+        incoming().id == linkId &&
+        incoming().createdByUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          (incoming().adminUid == request.auth.uid && isInstitutionAdmin(incoming().institutionId)) ||
+          (isInstitutionMember(incoming().institutionId) &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher' &&
+           incoming().role == 'student' &&
+           get(/databases/$(database)/documents/institutions/$(incoming().institutionId)).data.adminUid == incoming().adminUid)
+        );
+
+      allow update: if isVerifiedUser() &&
+        isValidId(linkId) &&
+        isValidPhoneLink(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().role == existing().role &&
+        incoming().institutionId == existing().institutionId &&
+        incoming().adminUid == existing().adminUid &&
+        incoming().memberDocId == existing().memberDocId &&
+        incoming().createdByUid == existing().createdByUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          (existing().adminUid == request.auth.uid &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['phoneE164', 'fallbackEmail', 'claimedUid', 'updatedAt'])) ||
+          (existing().claimedUid == '' &&
+           incoming().claimedUid == request.auth.uid &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['claimedUid', 'updatedAt']))
+        );
+
+      allow delete: if isValidId(linkId) && (existing().adminUid == request.auth.uid || existing().createdByUid == request.auth.uid || isAdmin());
+    }
+
+    match /topics/{topicId} {
+      allow get: if isValidId(topicId) && isVerifiedUser() && (
+        resource == null ||
+        existing().adminUid == request.auth.uid ||
+        existing().teacherUid == request.auth.uid ||
+        request.auth.uid in existing().teacherUids ||
+        isInstitutionMember(existing().institutionId) ||
+        isAdmin()
+      );
+      allow list: if isVerifiedUser() && (
+        resource.data.adminUid == request.auth.uid ||
+        resource.data.teacherUid == request.auth.uid ||
+        request.auth.uid in resource.data.teacherUids ||
+        isAdmin()
+      );
+
+      allow create: if isVerifiedUser() &&
+        isValidId(topicId) &&
+        isValidTopic(incoming()) &&
+        incoming().id == topicId &&
+        incoming().teacherUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isSubjectTeacher(incoming().institutionId, incoming().subjectId);
+
+      allow update: if isVerifiedUser() &&
+        isValidId(topicId) &&
+        isValidTopic(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().institutionId == existing().institutionId &&
+        incoming().adminUid == existing().adminUid &&
+        incoming().subjectId == existing().subjectId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          (isSubjectTeacher(existing().institutionId, existing().subjectId) &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'studyContent', 'referenceImages', 'preTestQuestions', 'postTestQuestions', 'assignmentPrompt', 'assignmentMode', 'isPublished', 'teacherUids', 'updatedAt']))
+        );
+
+      allow delete: if isValidId(topicId) && (
+        isAdmin() ||
+        existing().adminUid == request.auth.uid ||
+        isSubjectTeacher(existing().institutionId, existing().subjectId)
+      );
+    }
+
+    match /growthRecords/{recordId} {
+      allow get: if isValidId(recordId) && isVerifiedUser() && (
+        resource == null ||
+        isGrowthRecordStudentOwner(existing()) ||
+        existing().adminUid == request.auth.uid ||
+        request.auth.uid in existing().teacherUids ||
+        isSubjectTeacher(existing().institutionId, existing().subjectId) ||
+        isAdmin()
+      );
+      allow list: if isVerifiedUser() && (
+        resource.data.studentUid == request.auth.uid ||
+        resource.data.adminUid == request.auth.uid ||
+        request.auth.uid in resource.data.teacherUids ||
+        isAdmin()
+      );
+
+      allow create: if isVerifiedUser() &&
+        isValidId(recordId) &&
+        isValidGrowthRecord(incoming()) &&
+        incoming().id == recordId &&
+        incoming().studentUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/topics/$(incoming().topicId)) &&
+        get(/databases/$(database)/documents/topics/$(incoming().topicId)).data.institutionId == incoming().institutionId &&
+        get(/databases/$(database)/documents/topics/$(incoming().topicId)).data.subjectId == incoming().subjectId &&
+        get(/databases/$(database)/documents/topics/$(incoming().topicId)).data.adminUid == incoming().adminUid &&
+        exists(/databases/$(database)/documents/students/$(incoming().studentDocId)) &&
+        get(/databases/$(database)/documents/students/$(incoming().studentDocId)).data.claimedUid == request.auth.uid &&
+        get(/databases/$(database)/documents/students/$(incoming().studentDocId)).data.institutionId == incoming().institutionId;
+
+      allow update: if isVerifiedUser() &&
+        isValidId(recordId) &&
+        isValidGrowthRecord(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().institutionId == existing().institutionId &&
+        incoming().adminUid == existing().adminUid &&
+        incoming().subjectId == existing().subjectId &&
+        incoming().topicId == existing().topicId &&
+        incoming().studentDocId == existing().studentDocId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          (isAdmin() && incoming().studentUid == existing().studentUid) ||
+          // Tier 0: Institution Admin Full Reset / Override of Student Progress
+          (existing().adminUid == request.auth.uid &&
+           incoming().studentUid == existing().studentUid &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['preTestScore', 'preTestTotal', 'preTestPercent', 'preTestAnswers', 'preTestCompleted', 'studyCompleted', 'assignmentStatus', 'assignmentType', 'assignmentText', 'assignmentFileName', 'assignmentFileType', 'assignmentFileData', 'assignmentScore', 'assignmentFeedback', 'postTestScore', 'postTestTotal', 'postTestPercent', 'postTestAnswers', 'postTestCompleted', 'growthDelta', 'normalizedGain', 'updatedAt'])) ||
+          // Tier 2a: Student Submits Pre-Test (only if not already completed)
+          (isGrowthRecordStudentOwner(existing()) &&
+           incoming().studentUid == existing().studentUid &&
+           existing().preTestCompleted == false &&
+           incoming().preTestCompleted == true &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['preTestScore', 'preTestTotal', 'preTestPercent', 'preTestAnswers', 'preTestCompleted', 'updatedAt'])) ||
+          // Tier 2b: Student Marks Study Material Complete
+          (isGrowthRecordStudentOwner(existing()) &&
+           incoming().studentUid == existing().studentUid &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['studyCompleted', 'updatedAt'])) ||
+          // Tier 2c: Student Submits Assignment (only if not yet graded)
+          (isGrowthRecordStudentOwner(existing()) &&
+           incoming().studentUid == existing().studentUid &&
+           existing().assignmentStatus != 'graded' &&
+           incoming().assignmentStatus == 'submitted' &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['assignmentStatus', 'assignmentType', 'assignmentText', 'assignmentFileName', 'assignmentFileType', 'assignmentFileData', 'updatedAt'])) ||
+          // Tier 2d: Student Submits Post-Test (only if not already completed)
+          (isGrowthRecordStudentOwner(existing()) &&
+           incoming().studentUid == existing().studentUid &&
+           existing().postTestCompleted == false &&
+           incoming().postTestCompleted == true &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['postTestScore', 'postTestTotal', 'postTestPercent', 'postTestAnswers', 'postTestCompleted', 'growthDelta', 'normalizedGain', 'updatedAt'])) ||
+          // Tier 2e: Re-claimed Student Syncs Own UID on Existing Record
+          (isGrowthRecordStudentOwner(existing()) &&
+           incoming().studentUid == request.auth.uid &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['studentUid', 'updatedAt'])) ||
+          // Tier 1: Subject Teacher Grading Assignment
+          (isSubjectTeacher(existing().institutionId, existing().subjectId) &&
+           incoming().studentUid == existing().studentUid &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['assignmentStatus', 'assignmentScore', 'assignmentFeedback', 'updatedAt']))
+        );
+
+      allow delete: if isValidId(recordId) && (existing().adminUid == request.auth.uid || isAdmin());
+    }
+  }
+}

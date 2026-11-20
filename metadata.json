@@ -1,0 +1,8 @@
+{
+  "name": "Sikshalite",
+  "description": "Institution-led study growth tracker with SMS OTP authentication, subject-scoped teacher workspaces, Gemini-powered pre/post assessments, study materials, reference visuals, and assignment grading.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

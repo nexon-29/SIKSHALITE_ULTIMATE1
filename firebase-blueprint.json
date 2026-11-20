@@ -1,0 +1,681 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated user session profile mapping a Firebase UID to an institution role and member record.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128,
+          "description": "Firebase Auth UID of the user."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "teacher", "student"],
+          "maxLength": 20,
+          "description": "Role within the institution."
+        },
+        "institutionId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128,
+          "description": "Linked institution ID."
+        },
+        "memberId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128,
+          "description": "Linked teacher, student, or institution document ID."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Display name of the user."
+        },
+        "phoneE164": {
+          "type": "string",
+          "maxLength": 24,
+          "description": "Verified or registered mobile number in E.164 format."
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 160,
+          "description": "Verified email if signed in with Google fallback."
+        },
+        "photoUrl": {
+          "type": "string",
+          "maxLength": 250000,
+          "description": "Compressed profile image data URL or HTTPS URL."
+        },
+        "uniqueCode": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "Unique Student ID or Institution Join Code."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last update."
+        }
+      },
+      "required": ["uid", "role", "institutionId", "memberId", "displayName", "createdAt", "updatedAt"]
+    },
+    "Institution": {
+      "title": "Institution",
+      "description": "Academic institution profile with branding photo and admin photo.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "tagline": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "adminUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "adminName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "institutionPhoto": {
+          "type": "string",
+          "maxLength": 250000
+        },
+        "adminPhoto": {
+          "type": "string",
+          "maxLength": 250000
+        },
+        "joinCode": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 24
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "name", "adminUid", "adminName", "joinCode", "createdAt", "updatedAt"]
+    },
+    "Subject": {
+      "title": "Subject",
+      "description": "Academic subject scoped to an institution and assigned teachers.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "institutionId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "adminUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 24
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "teacherUids": {
+          "type": "array",
+          "description": "Claimed Firebase UIDs of assigned teachers (max 20)."
+        },
+        "teacherIds": {
+          "type": "array",
+          "description": "Teacher document IDs assigned to this subject (max 20)."
+        },
+        "topicIds": {
+          "type": "array",
+          "description": "Topic IDs belonging to this subject (max 50)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "institutionId", "adminUid", "name", "code", "teacherUids", "teacherIds", "topicIds", "createdAt", "updatedAt"]
+    },
+    "Teacher": {
+      "title": "Teacher",
+      "description": "Teacher record managed by an institution with mobile OTP link and assigned subjects.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "institutionId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "adminUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "phoneE164": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 24
+        },
+        "fallbackEmail": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "photoUrl": {
+          "type": "string",
+          "maxLength": 250000
+        },
+        "assignedSubjectIds": {
+          "type": "array",
+          "description": "Subject IDs this teacher is authorized to teach (max 20)."
+        },
+        "claimedUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "institutionId", "adminUid", "name", "phoneE164", "assignedSubjectIds", "claimedUid", "createdAt", "updatedAt"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Student record with unique ID, linked mobile number, enrolled subjects, and photo.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "institutionId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "adminUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "uniqueStudentId": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 32
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "phoneE164": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 24
+        },
+        "fallbackEmail": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "photoUrl": {
+          "type": "string",
+          "maxLength": 250000
+        },
+        "enrolledSubjectIds": {
+          "type": "array",
+          "description": "Enrolled subject IDs (max 20)."
+        },
+        "authorizedTeacherUids": {
+          "type": "array",
+          "description": "Teacher UIDs authorized to view/grade this student (max 20)."
+        },
+        "createdByUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "claimedUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "institutionId", "adminUid", "uniqueStudentId", "name", "phoneE164", "enrolledSubjectIds", "authorizedTeacherUids", "createdByUid", "claimedUid", "createdAt", "updatedAt"]
+    },
+    "PublicProfile": {
+      "title": "PublicProfile",
+      "description": "PII-free member directory card visible within an institution.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "institutionId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "adminUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "teacher", "student"],
+          "maxLength": 20
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "photoUrl": {
+          "type": "string",
+          "maxLength": 250000
+        },
+        "uniqueStudentId": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "subjectIds": {
+          "type": "array",
+          "description": "Subject IDs associated with this member (max 20)."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "institutionId", "adminUid", "role", "name", "subjectIds", "updatedAt"]
+    },
+    "PhoneLink": {
+      "title": "PhoneLink",
+      "description": "Deterministic mobile-number lookup bridge for OTP and Google fallback role claiming.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "role": {
+          "type": "string",
+          "enum": ["teacher", "student"],
+          "maxLength": 20
+        },
+        "institutionId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "adminUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "memberDocId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "phoneE164": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 24
+        },
+        "fallbackEmail": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "uniqueCode": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "claimedUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdByUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "role", "institutionId", "adminUid", "memberDocId", "phoneE164", "claimedUid", "createdByUid", "createdAt", "updatedAt"]
+    },
+    "Topic": {
+      "title": "Topic",
+      "description": "Subject topic containing study material, reference pictures, pre-test, post-test, and assignment.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "institutionId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "adminUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "subjectId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "teacherUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "teacherUids": {
+          "type": "array",
+          "description": "Assigned teacher UIDs for this topic's subject (max 20)."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 140
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "studyContent": {
+          "type": "string",
+          "maxLength": 30000
+        },
+        "referenceImages": {
+          "type": "array",
+          "description": "Compressed topic reference image objects (max 6)."
+        },
+        "preTestQuestions": {
+          "type": "array",
+          "description": "Pre-test MCQ question objects (max 15)."
+        },
+        "postTestQuestions": {
+          "type": "array",
+          "description": "Post-test MCQ question objects (max 15)."
+        },
+        "assignmentPrompt": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "assignmentMode": {
+          "type": "string",
+          "enum": ["written", "file", "both"],
+          "maxLength": 16
+        },
+        "isPublished": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "institutionId", "adminUid", "subjectId", "teacherUid", "teacherUids", "title", "studyContent", "referenceImages", "preTestQuestions", "postTestQuestions", "assignmentPrompt", "assignmentMode", "isPublished", "createdAt", "updatedAt"]
+    },
+    "GrowthRecord": {
+      "title": "GrowthRecord",
+      "description": "Student progress, quiz scores, assignment submission, and calculated growth delta for a topic.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "institutionId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "adminUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "subjectId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "topicId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "studentDocId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "studentUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "maxLength": 128
+        },
+        "studentName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "uniqueStudentId": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 32
+        },
+        "teacherUids": {
+          "type": "array",
+          "description": "Assigned teacher UIDs allowed to view and grade (max 20)."
+        },
+        "preTestScore": {
+          "type": "number"
+        },
+        "preTestTotal": {
+          "type": "number"
+        },
+        "preTestPercent": {
+          "type": "number"
+        },
+        "preTestAnswers": {
+          "type": "array",
+          "description": "Selected option indices for pre-test (max 15)."
+        },
+        "preTestCompleted": {
+          "type": "boolean"
+        },
+        "studyCompleted": {
+          "type": "boolean"
+        },
+        "assignmentStatus": {
+          "type": "string",
+          "enum": ["pending", "submitted", "graded"],
+          "maxLength": 20
+        },
+        "assignmentType": {
+          "type": "string",
+          "enum": ["none", "written", "file"],
+          "maxLength": 20
+        },
+        "assignmentText": {
+          "type": "string",
+          "maxLength": 15000
+        },
+        "assignmentFileName": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "assignmentFileType": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "assignmentFileData": {
+          "type": "string",
+          "maxLength": 350000
+        },
+        "assignmentScore": {
+          "type": "number"
+        },
+        "assignmentFeedback": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "postTestScore": {
+          "type": "number"
+        },
+        "postTestTotal": {
+          "type": "number"
+        },
+        "postTestPercent": {
+          "type": "number"
+        },
+        "postTestAnswers": {
+          "type": "array",
+          "description": "Selected option indices for post-test (max 15)."
+        },
+        "postTestCompleted": {
+          "type": "boolean"
+        },
+        "growthDelta": {
+          "type": "number"
+        },
+        "normalizedGain": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "institutionId", "adminUid", "subjectId", "topicId", "studentDocId", "studentUid", "studentName", "uniqueStudentId", "teacherUids", "preTestScore", "preTestTotal", "preTestPercent", "preTestAnswers", "preTestCompleted", "studyCompleted", "assignmentStatus", "assignmentType", "postTestScore", "postTestTotal", "postTestPercent", "postTestAnswers", "postTestCompleted", "growthDelta", "normalizedGain", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User authentication session profile and role mapping."
+    },
+    "/institutions/{institutionId}": {
+      "schema": { "$ref": "#/entities/Institution" },
+      "description": "Institution branding, photos, and admin ownership."
+    },
+    "/subjects/{subjectId}": {
+      "schema": { "$ref": "#/entities/Subject" },
+      "description": "Institution subjects and assigned teacher rosters."
+    },
+    "/teachers/{teacherId}": {
+      "schema": { "$ref": "#/entities/Teacher" },
+      "description": "Teacher records with mobile number, photo, and subject assignments."
+    },
+    "/students/{studentId}": {
+      "schema": { "$ref": "#/entities/Student" },
+      "description": "Student records with unique IDs, linked mobile numbers, and enrolled subjects."
+    },
+    "/publicProfiles/{profileId}": {
+      "schema": { "$ref": "#/entities/PublicProfile" },
+      "description": "PII-free member names and photos visible within an institution."
+    },
+    "/phoneLinks/{linkId}": {
+      "schema": { "$ref": "#/entities/PhoneLink" },
+      "description": "Mobile number lookup bridge for OTP and Google fallback role claiming."
+    },
+    "/topics/{topicId}": {
+      "schema": { "$ref": "#/entities/Topic" },
+      "description": "Subject topics with study material, reference pictures, quizzes, and assignments."
+    },
+    "/growthRecords/{recordId}": {
+      "schema": { "$ref": "#/entities/GrowthRecord" },
+      "description": "Student topic attempts, assignment submissions, grades, and growth metrics."
+    }
+  }
+}
